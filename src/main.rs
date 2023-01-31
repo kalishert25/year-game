@@ -1,6 +1,6 @@
 use chrono::Datelike;
 use counter::Counter;
-use itertools::{Itertools, MultiProduct};
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use queues::*;
 use std::fs;
@@ -31,13 +31,6 @@ lazy_static! {
         .iter()
         .map(|x| x.to_digit(10).unwrap() as u8)
         .collect();
-    // static ref INDEX_MAP: IndexMap = {
-    //     let (a, b) = make_index_maps();
-    //     IndexMap {
-    //         digits_to_index: a,
-    //         index_to_digits: b,
-    //     }
-    // };
 }
 fn main() {
     let mut expressions = vec![];
@@ -81,8 +74,7 @@ enum BinaryOperation {
 }
 impl BinaryOperation {
     fn eval(&self, a: i32, b: i32) -> Result<i32, EvaluationError> {
-        // println!("I'm gonna do this ({:?} with {a} and {b}) in a sec", self);
-        let x = match *self {
+        match *self {
             BinaryOperation::Add if (a + b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a + b),
             BinaryOperation::Subtract if (a - b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a - b),
             BinaryOperation::Multiply if (a * b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a * b),
@@ -99,9 +91,7 @@ impl BinaryOperation {
                 Ok(a.pow(b as u32))
             }
             _ => Err(EvaluationError::Overflow),
-        };
-        //println!("The operation {:?} with {a} and {b} produced this monstrosity => {:?}", self, x);
-        x
+        }
     }
     fn get_as_string(&self, a: (&str, Expression), b: (&str, Expression)) -> String {
         let token_a = if matches!(a.1, Expression::Simple(_) | Expression::UnaryComposite {..}) {
@@ -167,19 +157,6 @@ impl UnaryOperation {
         }
     }
 }
-
-pub trait ProductRepeat: Iterator + Clone
-where
-    Self::Item: Clone,
-{
-    fn product_repeat(self, repeat: usize) -> MultiProduct<Self> {
-        std::iter::repeat(self)
-            .take(repeat)
-            .multi_cartesian_product()
-    }
-}
-
-impl<T: Iterator + Clone> ProductRepeat for T where T::Item: Clone {}
 
 #[derive(Debug)]
 enum EvaluationError {
@@ -442,11 +419,6 @@ fn add_expressions() -> ExpressionTable {
                         add_to_queue(&mut queue, &mut seen_expressions, &expression_data);
                         added.push(expression_data);
                     };
-
-                    // if let BinaryOperation::Subtract
-                    // | BinaryOperation::Divide
-                    // | BinaryOperation::Power = binary_op
-                    // {}
                 }
             }
         }
@@ -474,7 +446,3 @@ fn collapse(expression: &Expression, table: &ExpressionTable) -> String {
         }
     }
 }
-
-// fn minify(expression: String) -> String {
-//     todo!()
-// }
