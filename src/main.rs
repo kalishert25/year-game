@@ -18,12 +18,10 @@ const MAX_EXPONENT: i32 = 10; //maximum exponent that will be calculated
 const MAX_FACTORIAL: i32 = 10; //maximum x in x!  that will be calculated
 const MAX_DOUBLE_FACTORIAL: i32 = 10; //maximum x!! that will be calculated
 
-
 //IMPORTANT ====================================================
 const ANSWERS_MINIMUM: i32 = 0; //minimum final answer
 const ANSWERS_MAXIUM: i32 = 100; //maximum final answer
-// =============================================================
-
+                                 // =============================================================
 
 lazy_static! {
     static ref YEAR_DIGITS: Vec<char> = get_user_input_digits();
@@ -37,7 +35,7 @@ fn main() {
     let x = add_expressions();
     for (value, ex) in x.get_answers().into_iter() {
         if *value >= ANSWERS_MINIMUM && *value <= ANSWERS_MAXIUM {
-            expressions.push((*value, format!("{:?} = {}\n", value, collapse(&ex.0, &x),), ));
+            expressions.push((*value, format!("{:?} = {}\n", value, collapse(&ex.0, &x),)));
         }
     }
     expressions.sort();
@@ -71,6 +69,7 @@ enum BinaryOperation {
     Multiply,
     Divide,
     Power,
+    Radical,
 }
 impl BinaryOperation {
     fn eval(&self, a: i32, b: i32) -> Result<i32, EvaluationError> {
@@ -90,16 +89,26 @@ impl BinaryOperation {
             {
                 Ok(a.pow(b as u32))
             }
+            BinaryOperation::Radical if f64::powf(a as f64, 1.0 / b as f64) % 1. < f64::EPSILON => {
+                Ok(f64::powf(a as f64, 1.0 / b as f64) as i32)
+            }
+
             _ => Err(EvaluationError::Overflow),
         }
     }
     fn get_as_string(&self, a: (&str, Expression), b: (&str, Expression)) -> String {
-        let token_a = if matches!(a.1, Expression::Simple(_) | Expression::UnaryComposite {..}) {
+        let token_a = if matches!(
+            a.1,
+            Expression::Simple(_) | Expression::UnaryComposite { .. }
+        ) {
             a.0.to_owned()
         } else {
             format!("({})", a.0)
         };
-        let token_b = if matches!(b.1, Expression::Simple(_) | Expression::UnaryComposite {..}) {
+        let token_b = if matches!(
+            b.1,
+            Expression::Simple(_) | Expression::UnaryComposite { .. }
+        ) {
             b.0.to_owned()
         } else {
             format!("({})", b.0)
@@ -110,6 +119,7 @@ impl BinaryOperation {
             BinaryOperation::Multiply => format!("{token_a} * {token_b}"),
             BinaryOperation::Divide => format!("{token_a}/{token_b}"),
             BinaryOperation::Power => format!("{token_a}^{token_b}"),
+            BinaryOperation::Radical => format!("{token_b}√{token_a}"),
         }
     }
 }
@@ -128,10 +138,20 @@ impl UnaryOperation {
     fn eval(&self, x: i32) -> Result<i32, EvaluationError> {
         match *self {
             UnaryOperation::Negate => Ok(-x),
-            UnaryOperation::Factorial | UnaryOperation::DoubleFactorial if x < 0 => Err(EvaluationError::NegativeFactorial),
+            UnaryOperation::Factorial | UnaryOperation::DoubleFactorial if x < 0 => {
+                Err(EvaluationError::NegativeFactorial)
+            }
             UnaryOperation::Factorial | UnaryOperation::DoubleFactorial if x == 0 => Ok(1),
-            UnaryOperation::Factorial if x < MAX_FACTORIAL  && (1..=x).product::<i32>() <= ABS_NUM_SIZE_LIMIT => Ok((1..=x).product()),
-            UnaryOperation::DoubleFactorial if x < MAX_DOUBLE_FACTORIAL && double_factorial(x) <= ABS_NUM_SIZE_LIMIT => Ok(double_factorial(x)),
+            UnaryOperation::Factorial
+                if x < MAX_FACTORIAL && (1..=x).product::<i32>() <= ABS_NUM_SIZE_LIMIT =>
+            {
+                Ok((1..=x).product())
+            }
+            UnaryOperation::DoubleFactorial
+                if x < MAX_DOUBLE_FACTORIAL && double_factorial(x) <= ABS_NUM_SIZE_LIMIT =>
+            {
+                Ok(double_factorial(x))
+            }
             UnaryOperation::Sqrt => {
                 if (x as f32).sqrt() % 1. < f32::EPSILON {
                     Ok((x as f32).sqrt() as i32)
@@ -152,8 +172,7 @@ impl UnaryOperation {
             UnaryOperation::Negate => format!("-{token}"),
             UnaryOperation::Factorial => format!("{token}!"),
             UnaryOperation::DoubleFactorial => format!("{token}!!"),
-            UnaryOperation::Sqrt => format!("sqrt({token})"),
-            
+            UnaryOperation::Sqrt => format!("√{token}"),
         }
     }
 }
@@ -261,7 +280,8 @@ impl Expression {
                     1
                 },
             },
-        nesting_level: a.nesting_level + 1})
+            nesting_level: a.nesting_level + 1,
+        })
     }
     fn binary_compose<'a>(
         a: &'a ExpressionData,
@@ -282,7 +302,7 @@ impl Expression {
                 binary_op,
                 b: ExpressionIndex::new(b.included_digits.clone(), b.value),
             },
-            nesting_level: a.nesting_level + b.nesting_level //a.nesting_level.max(b.nesting_level),
+            nesting_level: a.nesting_level + b.nesting_level, //a.nesting_level.max(b.nesting_level),
         })
     }
 }
@@ -292,11 +312,11 @@ struct ExpressionTable(HashMap<IncludedDigits, HashMap<i32, (Expression, u8)>>);
 impl ExpressionTable {
     fn get(&self, index: ExpressionIndex) -> ExpressionData {
         let x = self
-                .0
-                .get(&index.included_digits)
-                .unwrap()
-                .get(&index.value)
-                .unwrap();
+            .0
+            .get(&index.included_digits)
+            .unwrap()
+            .get(&index.value)
+            .unwrap();
         ExpressionData {
             included_digits: index.included_digits.clone(),
             value: index.value,
@@ -325,8 +345,14 @@ impl ExpressionTable {
     fn insert(&mut self, expression_data: ExpressionData) {
         let x = self.0.get_mut(&expression_data.included_digits).unwrap();
         match x.get(&expression_data.value) {
-            Some((_, curr_nesting_level)) if *curr_nesting_level <= expression_data.nesting_level => {},
-            _ => {x.insert(expression_data.value, (expression_data.data, expression_data.nesting_level));},
+            Some((_, curr_nesting_level))
+                if *curr_nesting_level <= expression_data.nesting_level => {}
+            _ => {
+                x.insert(
+                    expression_data.value,
+                    (expression_data.data, expression_data.nesting_level),
+                );
+            }
         }
     }
     fn new() -> ExpressionTable {
@@ -364,9 +390,7 @@ fn add_expressions() -> ExpressionTable {
             seen_expressions.insert(val);
         }
     }
-    fn remove_from_queue(
-        queue: &mut Queue<ExpressionIndex>,
-    ) -> ExpressionIndex {
+    fn remove_from_queue(queue: &mut Queue<ExpressionIndex>) -> ExpressionIndex {
         queue.remove().unwrap()
     }
     // first insert basic digits
