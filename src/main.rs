@@ -10,12 +10,20 @@ use std::{
 };
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+// Performace settings: higher numbers take longer but may increase yeild.
 const UNARY_OP_GROUP_LIMIT: u8 = 3; // sqrt(((x)!)!!) = 3
-const ABS_NUM_SIZE_LIMIT: i32 = 100; // maximum value that numbers in calculations can reach
+const ABS_NUM_SIZE_LIMIT: i32 = 1000; // maximum value that numbers in calculations can reach in intermediate expressions
 const MAX_BASE: i32 = 12; // maximum base that will be calculated
-const MAX_EXPONENT: i32 = 7; //maximum exponent that will be calculated
-const MAX_FACTORIAL: i32 = 5; //maximum x in x!  that will be calculated
-const MAX_DOUBLE_FACTORIAL: i32 = 7; //maximum x!! that will be calculated
+const MAX_EXPONENT: i32 = 10; //maximum exponent that will be calculated
+const MAX_FACTORIAL: i32 = 10; //maximum x in x!  that will be calculated
+const MAX_DOUBLE_FACTORIAL: i32 = 10; //maximum x!! that will be calculated
+
+
+//IMPORTANT ====================================================
+const ANSWERS_MINIMUM: i32 = 0; //minimum final answer
+const ANSWERS_MAXIUM: i32 = 100; //maximum final answer
+// =============================================================
+
 
 lazy_static! {
     static ref YEAR_DIGITS: Vec<char> = get_user_input_digits();
@@ -35,8 +43,8 @@ fn main() {
     let mut expressions = vec![];
     let x = add_expressions();
     for (value, ex) in x.get_answers().into_iter() {
-        if *value >= 0 {
-            expressions.push((*value, format!("{:?} = {}\n", value, collapse(ex, &x),), ));
+        if *value >= ANSWERS_MINIMUM && *value <= ANSWERS_MAXIUM {
+            expressions.push((*value, format!("{:?} = {}\n", value, collapse(&ex.0, &x),), ));
         }
     }
     expressions.sort();
@@ -75,9 +83,9 @@ impl BinaryOperation {
     fn eval(&self, a: i32, b: i32) -> Result<i32, EvaluationError> {
         // println!("I'm gonna do this ({:?} with {a} and {b}) in a sec", self);
         let x = match *self {
-            BinaryOperation::Add if (a + b).abs() < ABS_NUM_SIZE_LIMIT => Ok(a + b),
-            BinaryOperation::Subtract if (a - b).abs() < ABS_NUM_SIZE_LIMIT => Ok(a - b),
-            BinaryOperation::Multiply if (a * b).abs() < ABS_NUM_SIZE_LIMIT => Ok(a * b),
+            BinaryOperation::Add if (a + b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a + b),
+            BinaryOperation::Subtract if (a - b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a - b),
+            BinaryOperation::Multiply if (a * b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a * b),
             BinaryOperation::Divide if b == 0 => Err(EvaluationError::ZeroDivision),
             BinaryOperation::Divide if a % b != 0 => Err(EvaluationError::Fractional),
             BinaryOperation::Divide => Ok(a / b),
@@ -86,7 +94,7 @@ impl BinaryOperation {
             BinaryOperation::Power
                 if a.abs() < MAX_BASE
                     && b.abs() < MAX_EXPONENT
-                    && a.pow(b as u32).abs() < ABS_NUM_SIZE_LIMIT =>
+                    && a.pow(b as u32).abs() <= ABS_NUM_SIZE_LIMIT =>
             {
                 Ok(a.pow(b as u32))
             }
@@ -96,12 +104,12 @@ impl BinaryOperation {
         x
     }
     fn get_as_string(&self, a: (&str, Expression), b: (&str, Expression)) -> String {
-        let token_a = if matches!(a.1, Expression::Simple(_)) {
+        let token_a = if matches!(a.1, Expression::Simple(_) | Expression::UnaryComposite {..}) {
             a.0.to_owned()
         } else {
             format!("({})", a.0)
         };
-        let token_b = if matches!(b.1, Expression::Simple(_)) {
+        let token_b = if matches!(b.1, Expression::Simple(_) | Expression::UnaryComposite {..}) {
             b.0.to_owned()
         } else {
             format!("({})", b.0)
@@ -110,7 +118,7 @@ impl BinaryOperation {
             BinaryOperation::Add => format!("{token_a} + {token_b}"),
             BinaryOperation::Subtract => format!("{token_a} - {token_b}"),
             BinaryOperation::Multiply => format!("{token_a} * {token_b}"),
-            BinaryOperation::Divide => format!("{token_a}/({token_b}"),
+            BinaryOperation::Divide => format!("{token_a}/{token_b}"),
             BinaryOperation::Power => format!("{token_a}^{token_b}"),
         }
     }
@@ -132,8 +140,8 @@ impl UnaryOperation {
             UnaryOperation::Negate => Ok(-x),
             UnaryOperation::Factorial | UnaryOperation::DoubleFactorial if x < 0 => Err(EvaluationError::NegativeFactorial),
             UnaryOperation::Factorial | UnaryOperation::DoubleFactorial if x == 0 => Ok(1),
-            UnaryOperation::Factorial if x < MAX_FACTORIAL  && (1..=x).product::<i32>() < ABS_NUM_SIZE_LIMIT => Ok((1..=x).product()),
-            UnaryOperation::DoubleFactorial if x < MAX_DOUBLE_FACTORIAL && double_factorial(x) < ABS_NUM_SIZE_LIMIT => Ok(double_factorial(x)),
+            UnaryOperation::Factorial if x < MAX_FACTORIAL  && (1..=x).product::<i32>() <= ABS_NUM_SIZE_LIMIT => Ok((1..=x).product()),
+            UnaryOperation::DoubleFactorial if x < MAX_DOUBLE_FACTORIAL && double_factorial(x) <= ABS_NUM_SIZE_LIMIT => Ok(double_factorial(x)),
             UnaryOperation::Sqrt => {
                 if (x as f32).sqrt() % 1. < f32::EPSILON {
                     Ok((x as f32).sqrt() as i32)
@@ -152,8 +160,8 @@ impl UnaryOperation {
         };
         match *self {
             UnaryOperation::Negate => format!("-{token}"),
-            UnaryOperation::Factorial => format!("({token})!"),
-            UnaryOperation::DoubleFactorial => format!("({token})!!"),
+            UnaryOperation::Factorial => format!("{token}!"),
+            UnaryOperation::DoubleFactorial => format!("{token}!!"),
             UnaryOperation::Sqrt => format!("sqrt({token})"),
             
         }
@@ -227,6 +235,7 @@ struct ExpressionData {
     included_digits: IncludedDigits,
     value: i32,
     data: Expression,
+    nesting_level: u8,
 }
 impl Expression {
     fn from_single_num<'a>(n: u32) -> Result<ExpressionData, EvaluationError> {
@@ -245,13 +254,14 @@ impl Expression {
         if !included_digits.is_subset(&YEAR_DIGITS_COUNTER) {
             return Err(EvaluationError::IncompatibleWithYear);
         }
-        if n >= ABS_NUM_SIZE_LIMIT as u32 {
+        if n > ABS_NUM_SIZE_LIMIT as u32 {
             return Err(EvaluationError::Overflow);
         }
         Ok(ExpressionData {
             included_digits: IncludedDigits(included_digits),
             value: n as i32,
             data: Expression::Simple(n),
+            nesting_level: 0,
         })
     }
     fn unary_compose<'a>(
@@ -274,7 +284,7 @@ impl Expression {
                     1
                 },
             },
-        })
+        nesting_level: a.nesting_level + 1})
     }
     fn binary_compose<'a>(
         a: &'a ExpressionData,
@@ -295,13 +305,53 @@ impl Expression {
                 binary_op,
                 b: ExpressionIndex::new(b.included_digits.clone(), b.value),
             },
+            nesting_level: a.nesting_level + b.nesting_level //a.nesting_level.max(b.nesting_level),
         })
     }
 }
 
 #[derive(Debug)]
-struct ExpressionTable(HashMap<IncludedDigits, HashMap<i32, Expression>>);
+struct ExpressionTable(HashMap<IncludedDigits, HashMap<i32, (Expression, u8)>>);
 impl ExpressionTable {
+    fn get(&self, index: ExpressionIndex) -> ExpressionData {
+        let x = self
+                .0
+                .get(&index.included_digits)
+                .unwrap()
+                .get(&index.value)
+                .unwrap();
+        ExpressionData {
+            included_digits: index.included_digits.clone(),
+            value: index.value,
+            data: x.0.clone(),
+            nesting_level: x.1,
+        }
+    }
+    fn get_answers(&self) -> &HashMap<i32, (Expression, u8)> {
+        self.0
+            .get(&IncludedDigits(YEAR_DIGITS_COUNTER.to_owned()))
+            .unwrap()
+    }
+    fn get_expressions_that_pair(
+        &self,
+        included: &IncludedDigits,
+    ) -> Vec<(&IncludedDigits, &HashMap<i32, (Expression, u8)>)> {
+        self.0
+            .iter()
+            .filter_map(|(inc, exprs)| {
+                (inc.0.clone() | included.0.clone())
+                    .is_subset(&YEAR_DIGITS_COUNTER)
+                    .then(|| (inc, exprs))
+            })
+            .collect_vec()
+    }
+    fn insert(&mut self, expression_data: ExpressionData) {
+        let x = self.0.get_mut(&expression_data.included_digits).unwrap();
+        match x.get(&expression_data.value) {
+            Some((_, curr_nesting_level)) if *curr_nesting_level <= expression_data.nesting_level => {},
+            _ => {x.insert(expression_data.value, (expression_data.data, expression_data.nesting_level));},
+        }
+    }
     fn new() -> ExpressionTable {
         let mut h = HashMap::new();
         let included: Vec<u8> = YEAR_DIGITS
@@ -316,44 +366,6 @@ impl ExpressionTable {
         }
 
         ExpressionTable(h)
-    }
-    fn insert(&mut self, expression_data: ExpressionData) {
-        let x = self.0.get_mut(&expression_data.included_digits).unwrap();
-        if !x.contains_key(&expression_data.value) {
-            //println!("Adding new value {}", expression_data.value);
-            x.insert(expression_data.value, expression_data.data);
-        }
-    }
-    fn get(&self, index: ExpressionIndex) -> ExpressionData {
-        ExpressionData {
-            included_digits: index.included_digits.clone(),
-            value: index.value,
-            data: self
-                .0
-                .get(&index.included_digits)
-                .unwrap()
-                .get(&index.value)
-                .unwrap()
-                .clone(),
-        }
-    }
-    fn get_answers(&self) -> &HashMap<i32, Expression> {
-        self.0
-            .get(&IncludedDigits(YEAR_DIGITS_COUNTER.to_owned()))
-            .unwrap()
-    }
-    fn get_expressions_that_pair(
-        &self,
-        included: &IncludedDigits,
-    ) -> Vec<(&IncludedDigits, &HashMap<i32, Expression>)> {
-        self.0
-            .iter()
-            .filter_map(|(inc, exprs)| {
-                (inc.0.clone() | included.0.clone())
-                    .is_subset(&YEAR_DIGITS_COUNTER)
-                    .then(|| (inc, exprs))
-            })
-            .collect_vec()
     }
 }
 
@@ -415,7 +427,7 @@ fn add_expressions() -> ExpressionTable {
         //now look up in the table for all other expressions that could validly combine with current
         let possible_pairs = table.get_expressions_that_pair(&curr.included_digits);
         for (included_digits, row) in possible_pairs {
-            for (value, data) in row {
+            for (value, (data, nesting_level)) in row {
                 for binary_op in BinaryOperation::iter() {
                     if let Ok(expression_data) = Expression::binary_compose(
                         &curr,
@@ -424,6 +436,7 @@ fn add_expressions() -> ExpressionTable {
                             included_digits: included_digits.clone(),
                             value: *value,
                             data: data.clone(),
+                            nesting_level: *nesting_level,
                         },
                     ) {
                         add_to_queue(&mut queue, &mut seen_expressions, &expression_data);
