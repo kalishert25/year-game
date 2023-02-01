@@ -22,3 +22,12 @@
 "32" = √(0.1√2)
 "48" = ((1 + 2)!)!!
    
+
+.expect(&format!(
+                            "x={}, prec={}, x.is_zero()={}, x==ZERO={}, x<ep={}",
+                            x,
+                            x.get_precision(),
+                            x.is_zero(),
+                            x == *ZERO,
+                            x.to_f64().unwrap()
+                        )
