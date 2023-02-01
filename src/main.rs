@@ -11,7 +11,7 @@ use std::{
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 // Performace settings: higher numbers take longer but may increase yeild.
-const UNARY_OP_GROUP_LIMIT: u8 = 3; // sqrt(((x)!)!!) = 3
+const UNARY_OP_GROUP_LIMIT: u8 = 5; // sqrt(((x)!)!!) = 3
 const ABS_NUM_SIZE_LIMIT: i32 = 1000; // maximum value that numbers in calculations can reach in intermediate expressions
 const MAX_BASE: i32 = 12; // maximum base that will be calculated
 const MAX_EXPONENT: i32 = 10; //maximum exponent that will be calculated
