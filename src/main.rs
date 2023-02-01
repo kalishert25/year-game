@@ -13,8 +13,8 @@ use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 // Performace settings: higher numbers take longer but may increase yeild.
 use std::str::FromStr;
-use fraction::{Decimal, ToPrimitive, Zero}; 
-
+use fraction::{Decimal, ToPrimitive, Zero, Fraction}; 
+const MAX_DENOMENATOR: u64 = 100;
 lazy_static! {
     static ref ZERO: Decimal = Decimal::from(0);
     static ref UNARY_OP_GROUP_LIMIT: u8 = 3; // sqrt(((x)!)!!) = 3
@@ -38,8 +38,8 @@ fn main() {
     let mut expressions = vec![];
     let x = add_expressions();
     for (value, ex) in x.get_answers().into_iter() {
-        if *value >= *ANSWERS_MINIMUM && *value <= *ANSWERS_MAXIUM && matches!(value.to_u32(), None) {
-            expressions.push((*value, format!("{:?} = {}\n", value.to_string(), collapse(&ex.0, &x),)));
+        if *value >= *ANSWERS_MINIMUM && *value <= *ANSWERS_MAXIUM {
+            expressions.push((*value, format!("{:?} = {}\n", value.to_string().as_str(), collapse(&ex.0, &x),)));
         }
     }
     expressions.sort();
@@ -99,7 +99,7 @@ impl BinaryOperation {
 
             _ => Err(EvaluationError::Overflow),
         } {
-            Ok(d) if d.get_precision() > 1 || !d.is_normal() => Err(EvaluationError::Fractional),
+            Ok(d) if *Fraction::from(d.to_f64().unwrap()).denom().unwrap_or_else(|| &u64::MAX) > MAX_DENOMENATOR || !d.is_normal() => Err(EvaluationError::Fractional),
             x => x,
         }
     }
@@ -169,7 +169,7 @@ impl UnaryOperation {
             }
             _ => Err(EvaluationError::Overflow),
         } {
-            Ok(d) if d.get_precision() > 1 || !d.is_normal() => Err(EvaluationError::Fractional),
+            Ok(d) if *Fraction::from(d.to_f64().unwrap()).denom().unwrap_or_else(|| &u64::MAX) > MAX_DENOMENATOR || !d.is_normal() => Err(EvaluationError::Fractional),
             x => x,
         }
     }
@@ -226,7 +226,7 @@ impl ExpressionIndex {
 }
 #[derive(Debug, Clone)]
 enum Expression {
-    Simple(u32),
+    Simple(Decimal),
     UnaryComposite {
         a: ExpressionIndex,
         unary_op: UnaryOperation,
@@ -247,29 +247,41 @@ struct ExpressionData {
     nesting_level: u8,
 }
 impl Expression {
-    fn from_single_num<'a>(n: u32) -> Result<ExpressionData, EvaluationError> {
+    fn from_single_num<'a>(mut x: String, add_decimal_point: bool) -> Result<ExpressionData, EvaluationError> {
         let mut included_digits: Counter<u8> = Counter::new();
-        if n == 0 {
-            included_digits[&0] += 1
-        } else {
-            let mut m = n.clone();
+        
+        if add_decimal_point {
+            for letter in x.chars() {
+                included_digits[&(letter.to_digit(10).unwrap() as u8)] += 1;
+            }
+            x = "0.".to_owned() + &x;
+        }
+        else {
+            let n: u32 = x.parse().unwrap();
+            if Decimal::from(n as i32) > *ABS_NUM_SIZE_LIMIT {
+                return Err(EvaluationError::Overflow);
+            }   
+            if n == 0 {
+                included_digits[&0] += 1
+            } else {
+                let mut m = n.clone();
 
-            while m > 0 {
-                included_digits[&((m % 10) as u8)] += 1;
-                m /= 10;
+                while m > 0 {
+                    included_digits[&((m % 10) as u8)] += 1;
+                    m /= 10;
+                }
             }
         }
+        
 
         if !included_digits.is_subset(&YEAR_DIGITS_COUNTER) {
             return Err(EvaluationError::IncompatibleWithYear);
         }
-        if Decimal::from(n as i32) > *ABS_NUM_SIZE_LIMIT {
-            return Err(EvaluationError::Overflow);
-        }
+        
         Ok(ExpressionData {
             included_digits: IncludedDigits(included_digits),
-            value: Decimal::from(n as i32),
-            data: Expression::Simple(n),
+            value: Decimal::from_str(&x).unwrap(),
+            data: Expression::Simple(Decimal::from_str(&x).unwrap()),
             nesting_level: 0,
         })
     }
@@ -408,21 +420,26 @@ fn add_expressions() -> ExpressionTable {
     }
     // first insert basic digits
     for digit in YEAR_DIGITS.iter() {
-        if let Ok(expression_data) = Expression::from_single_num(digit.to_digit(10).unwrap()) {
+        for b in [true, false] {
+            if let Ok(expression_data) = Expression::from_single_num(digit.to_owned().to_string(), b) {
             add_to_queue(&mut queue, &mut seen_expressions, &expression_data);
             table.insert(expression_data);
+            }
         }
+        
     }
     // then insert the permutations of digits
     for k in 2..=YEAR_DIGITS.len() {
         for n in YEAR_DIGITS
             .iter()
             .permutations(k)
-            .map(|x| String::from_iter(x).parse::<u32>().unwrap())
+            .map(|x| String::from_iter(x))
         {
-            if let Ok(expression_data) = Expression::from_single_num(n) {
+            for b in [true, false] {
+            if let Ok(expression_data) = Expression::from_single_num(n.clone(), b) {
                 add_to_queue(&mut queue, &mut seen_expressions, &expression_data);
                 table.insert(expression_data);
+            }
             }
         }
     }
