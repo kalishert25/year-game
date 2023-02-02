@@ -12,9 +12,9 @@ use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 // Performace settings: higher numbers take longer but may increase yeild.
 const UNARY_OP_GROUP_LIMIT: u8 = 5; // sqrt(((x)!)!!) = 3
-const ABS_NUM_SIZE_LIMIT: i32 = 1000; // maximum value that numbers in calculations can reach in intermediate expressions
-const MAX_BASE: i32 = 12; // maximum base that will be calculated
-const MAX_EXPONENT: i32 = 10; //maximum exponent that will be calculated
+const ABS_NUM_SIZE_LIMIT: i32 = 100; // maximum value that numbers in calculations can reach in intermediate expressions
+const MAX_BASE: i32 = 9; // maximum base that will be calculated
+const MAX_EXPONENT: i32 = 9; //maximum exponent that will be calculated
 const MAX_FACTORIAL: i32 = 10; //maximum x in x!  that will be calculated
 const MAX_DOUBLE_FACTORIAL: i32 = 10; //maximum x!! that will be calculated
 
@@ -73,6 +73,7 @@ enum BinaryOperation {
 }
 impl BinaryOperation {
     fn eval(&self, a: i32, b: i32) -> Result<i32, EvaluationError> {
+        // println!("Evaluating {} {:?} {}", a, self, b);
         match *self {
             BinaryOperation::Add if (a + b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a + b),
             BinaryOperation::Subtract if (a - b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a - b),
