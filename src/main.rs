@@ -13,19 +13,19 @@ use strum_macros::EnumIter;
 // Performace settings: higher numbers take longer but may increase yeild.
 use fraction::{Decimal, Fraction, ToPrimitive, Zero};
 use std::str::FromStr;
-const MAX_DENOMENATOR: u64 = 1;
+const MAX_DENOMENATOR: u64 = 100;
 const MAX_DENOMENATOR_FROM_ORIGNAL_DIGITS: u64 = 100;
-const UNARY_OP_GROUP_LIMIT: u8 = 3; // sqrt(((x)!)!!) = 3
+const UNARY_OP_GROUP_LIMIT: u8 = 4; // sqrt(((x)!)!!) = 3
 lazy_static! {
     static ref ZERO: Decimal = Decimal::from(0);
-    static ref ABS_NUM_SIZE_LIMIT: Decimal = Decimal::from(100); // maximum value that numbers in calculations can reach in intermediate expressions
+    static ref ABS_NUM_SIZE_LIMIT: Decimal = Decimal::from(1000); // maximum value that numbers in calculations can reach in intermediate expressions
     static ref MAX_BASE: Decimal = Decimal::from(12); // maximum base that will be calculated
     static ref MAX_EXPONENT: Decimal = Decimal::from(10); //maximum exponent that will be calculated
     static ref MAX_FACTORIAL: Decimal = Decimal::from(10); //maximum x in x!  that will be calculated
     static ref MAX_DOUBLE_FACTORIAL: Decimal = Decimal::from(10); //maximum x!! that will be calculated
 
     //IMPORTANT ====================================================
-    static ref ANSWERS_MINIMUM: Decimal = Decimal::from(0); //minimum final answer
+    static ref ANSWERS_MINIMUM: Decimal = Decimal::from(-100); //minimum final answer
     static ref ANSWERS_MAXIUM: Decimal = Decimal::from(100); //maximum final answer
     // =============================================================
     static ref YEAR_DIGITS: Vec<char> = get_user_input_digits();
@@ -50,7 +50,7 @@ fn main() {
         }
     }
     expressions.sort();
-    fs::write(format!("year_game_{}.txt", YEAR_DIGITS.iter().join("")), expressions.iter().map(|x| &x.1).join("")).unwrap();
+    fs::write(format!("year_game_new{}.txt", YEAR_DIGITS.iter().join("")), expressions.iter().map(|x| &x.1).join("")).unwrap();
 }
 
 fn get_user_input_digits() -> Vec<char> {
