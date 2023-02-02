@@ -13,10 +13,11 @@ use strum_macros::EnumIter;
 // Performace settings: higher numbers take longer but may increase yeild.
 use fraction::{Decimal, Fraction, ToPrimitive, Zero};
 use std::str::FromStr;
-const MAX_DENOMENATOR: u64 = 10;
+const MAX_DENOMENATOR: u64 = 1;
+const MAX_DENOMENATOR_FROM_ORIGNAL_DIGITS: u64 = 100;
+const UNARY_OP_GROUP_LIMIT: u8 = 3; // sqrt(((x)!)!!) = 3
 lazy_static! {
     static ref ZERO: Decimal = Decimal::from(0);
-    static ref UNARY_OP_GROUP_LIMIT: u8 = 3; // sqrt(((x)!)!!) = 3
     static ref ABS_NUM_SIZE_LIMIT: Decimal = Decimal::from(100); // maximum value that numbers in calculations can reach in intermediate expressions
     static ref MAX_BASE: Decimal = Decimal::from(12); // maximum base that will be calculated
     static ref MAX_EXPONENT: Decimal = Decimal::from(10); //maximum exponent that will be calculated
@@ -49,7 +50,7 @@ fn main() {
         }
     }
     expressions.sort();
-    fs::write("answer.txt", expressions.iter().map(|x| &x.1).join("")).unwrap();
+    fs::write(format!("year_game_{}.txt", YEAR_DIGITS.iter().join("")), expressions.iter().map(|x| &x.1).join("")).unwrap();
 }
 
 fn get_user_input_digits() -> Vec<char> {
@@ -161,8 +162,8 @@ fn double_factorial(n: Decimal) -> Decimal {
 enum UnaryOperation {
     Negate,    // -x
     Factorial, // x!
-    DoubleFactorial,
-    Sqrt,
+    DoubleFactorial, //x!!
+    Sqrt,  //x
 }
 impl UnaryOperation {
     fn eval(&self, x: Decimal) -> Result<Decimal, EvaluationError> {
@@ -334,11 +335,15 @@ impl Expression {
         if phantom_zero {
             x = "0".to_owned() + &x;
         }
+        let value = Decimal::from_str(&x).unwrap();
         if !included_digits.is_subset(&YEAR_DIGITS_COUNTER) {
             println!("dec {:?}", included_digits);
             Err(EvaluationError::IncompatibleWithYear)
-        } else {
-            let value = Decimal::from_str(&x).unwrap();
+        } else if *Fraction::from(value.to_f64().unwrap()).denom().unwrap() > MAX_DENOMENATOR_FROM_ORIGNAL_DIGITS {
+            Err(EvaluationError::Fractional)
+        }
+        else {
+            
             Ok(ExpressionData {
                 included_digits: IncludedDigits(included_digits),
                 value,
@@ -361,7 +366,7 @@ impl Expression {
                 a: ExpressionIndex::new(a.included_digits.clone(), a.value),
                 unary_op,
                 iterative_ops: if let Expression::UnaryComposite { iterative_ops, .. } = &a.data {
-                    if iterative_ops + 1 < *UNARY_OP_GROUP_LIMIT {
+                    if iterative_ops + 1 < UNARY_OP_GROUP_LIMIT {
                         iterative_ops + 1
                     } else {
                         Err(EvaluationError::UnaryOperationOverflow)?
