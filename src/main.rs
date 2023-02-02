@@ -11,19 +11,23 @@ use std::{
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 // Performace settings: higher numbers take longer but may increase yeild.
-const UNARY_OP_GROUP_LIMIT: u8 = 5; // sqrt(((x)!)!!) = 3
-const ABS_NUM_SIZE_LIMIT: i32 = 100; // maximum value that numbers in calculations can reach in intermediate expressions
-const MAX_BASE: i32 = 9; // maximum base that will be calculated
-const MAX_EXPONENT: i32 = 9; //maximum exponent that will be calculated
-const MAX_FACTORIAL: i32 = 10; //maximum x in x!  that will be calculated
-const MAX_DOUBLE_FACTORIAL: i32 = 10; //maximum x!! that will be calculated
-
-//IMPORTANT ====================================================
-const ANSWERS_MINIMUM: i32 = 0; //minimum final answer
-const ANSWERS_MAXIUM: i32 = 100; //maximum final answer
-                                 // =============================================================
-
+use fraction::{Decimal, Fraction, ToPrimitive, Zero};
+use std::str::FromStr;
+const MAX_DENOMENATOR: u64 = 100;
+const MAX_DENOMENATOR_FROM_ORIGNAL_DIGITS: u64 = 100;
+const UNARY_OP_GROUP_LIMIT: u8 = 4; // sqrt(((x)!)!!) = 3
 lazy_static! {
+    static ref ZERO: Decimal = Decimal::from(0);
+    static ref ABS_NUM_SIZE_LIMIT: Decimal = Decimal::from(1000); // maximum value that numbers in calculations can reach in intermediate expressions
+    static ref MAX_BASE: Decimal = Decimal::from(12); // maximum base that will be calculated
+    static ref MAX_EXPONENT: Decimal = Decimal::from(10); //maximum exponent that will be calculated
+    static ref MAX_FACTORIAL: Decimal = Decimal::from(10); //maximum x in x!  that will be calculated
+    static ref MAX_DOUBLE_FACTORIAL: Decimal = Decimal::from(10); //maximum x!! that will be calculated
+
+    //IMPORTANT ====================================================
+    static ref ANSWERS_MINIMUM: Decimal = Decimal::from(-100); //minimum final answer
+    static ref ANSWERS_MAXIUM: Decimal = Decimal::from(100); //maximum final answer
+    // =============================================================
     static ref YEAR_DIGITS: Vec<char> = get_user_input_digits();
     static ref YEAR_DIGITS_COUNTER: Counter<u8> = YEAR_DIGITS
         .iter()
@@ -34,12 +38,19 @@ fn main() {
     let mut expressions = vec![];
     let x = add_expressions();
     for (value, ex) in x.get_answers().into_iter() {
-        if *value >= ANSWERS_MINIMUM && *value <= ANSWERS_MAXIUM {
-            expressions.push((*value, format!("{:?} = {}\n", value, collapse(&ex.0, &x),)));
+        let value = &value.calc_precision(Some(4));
+        if *value >= *ANSWERS_MINIMUM
+            && *value <= *ANSWERS_MAXIUM
+            && !value.to_string().contains(".")
+        {
+            expressions.push((
+                *value,
+                format!("{} = {}\n", value.to_string(), collapse(&ex.0, &x),),
+            ));
         }
     }
     expressions.sort();
-    fs::write("answer.txt", expressions.iter().map(|x| &x.1).join("")).unwrap();
+    fs::write(format!("year_game_new{}.txt", YEAR_DIGITS.iter().join("")), expressions.iter().map(|x| &x.1).join("")).unwrap();
 }
 
 fn get_user_input_digits() -> Vec<char> {
@@ -72,29 +83,44 @@ enum BinaryOperation {
     Radical,
 }
 impl BinaryOperation {
-    fn eval(&self, a: i32, b: i32) -> Result<i32, EvaluationError> {
-        // println!("Evaluating {} {:?} {}", a, self, b);
-        match *self {
-            BinaryOperation::Add if (a + b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a + b),
-            BinaryOperation::Subtract if (a - b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a - b),
-            BinaryOperation::Multiply if (a * b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a * b),
-            BinaryOperation::Divide if b == 0 => Err(EvaluationError::ZeroDivision),
-            BinaryOperation::Divide if a % b != 0 => Err(EvaluationError::Fractional),
+    fn eval(&self, a: Decimal, b: Decimal) -> Result<Decimal, EvaluationError> {
+        match match *self {
+            BinaryOperation::Add if (a + b).abs() <= *ABS_NUM_SIZE_LIMIT => Ok(a + b),
+            BinaryOperation::Subtract if (a - b).abs() <= *ABS_NUM_SIZE_LIMIT => Ok(a - b),
+            BinaryOperation::Multiply if (a * b).abs() <= *ABS_NUM_SIZE_LIMIT => Ok(a * b),
+            BinaryOperation::Divide if b.is_zero() => Err(EvaluationError::ZeroDivision),
+            //BinaryOperation::Divide if  a % b == *ZERO  => Err(EvaluationError::Fractional),
             BinaryOperation::Divide => Ok(a / b),
-            BinaryOperation::Power if a == 0 && b == 0 => Ok(1),
-            BinaryOperation::Power if b < 0 => Err(EvaluationError::Fractional),
+            BinaryOperation::Power if a.is_zero() && b.is_zero() => Ok(Decimal::from(1)),
+            BinaryOperation::Power if b.is_zero() => Err(EvaluationError::Fractional),
             BinaryOperation::Power
-                if a.abs() < MAX_BASE
-                    && b.abs() < MAX_EXPONENT
-                    && a.pow(b as u32).abs() <= ABS_NUM_SIZE_LIMIT =>
+                if a.abs() < *MAX_BASE
+                    && b.abs() < *MAX_EXPONENT
+                    && a.to_f64().unwrap().powf(b.to_f64().unwrap()).abs()
+                        <= ABS_NUM_SIZE_LIMIT.to_f64().unwrap() =>
             {
-                Ok(a.pow(b as u32))
+                Ok(Decimal::from(a.to_f64().unwrap().powf(b.to_f64().unwrap())))
             }
-            BinaryOperation::Radical if f64::powf(a as f64, 1.0 / b as f64) % 1. < f64::EPSILON => {
-                Ok(f64::powf(a as f64, 1.0 / b as f64) as i32)
+            BinaryOperation::Radical
+                if a.to_f64().unwrap().powf(1.0 / b.to_f64().unwrap()) % 1. < f64::EPSILON =>
+            {
+                Ok(Decimal::from(
+                    a.to_f64().unwrap().powf(1.0 / b.to_f64().unwrap()),
+                ))
             }
 
             _ => Err(EvaluationError::Overflow),
+        } {
+            Ok(d)
+                if *Fraction::from(d.to_f64().unwrap())
+                    .denom()
+                    .unwrap_or_else(|| &u64::MAX)
+                    > MAX_DENOMENATOR
+                    || !d.is_normal() =>
+            {
+                Err(EvaluationError::Fractional)
+            }
+            x => x,
         }
     }
     fn get_as_string(&self, a: (&str, Expression), b: (&str, Expression)) -> String {
@@ -125,42 +151,69 @@ impl BinaryOperation {
     }
 }
 
-fn double_factorial(n: i32) -> i32 {
-    return ((n + 1) % 2 + 1..=n).step_by(2).product();
+fn double_factorial(n: Decimal) -> Decimal {
+    Decimal::from(
+        (((n.round().to_usize().unwrap() + 1) % 2 + 1)..=(n.round().to_usize().unwrap()))
+            .step_by(2_usize)
+            .product::<usize>(),
+    )
 }
 #[derive(Debug, EnumIter, Clone, PartialEq, Eq, Hash, Copy)]
 enum UnaryOperation {
     Negate,    // -x
     Factorial, // x!
-    DoubleFactorial,
-    Sqrt,
+    DoubleFactorial, //x!!
+    Sqrt,  //x
 }
 impl UnaryOperation {
-    fn eval(&self, x: i32) -> Result<i32, EvaluationError> {
-        match *self {
+    fn eval(&self, x: Decimal) -> Result<Decimal, EvaluationError> {
+        match match *self {
             UnaryOperation::Negate => Ok(-x),
-            UnaryOperation::Factorial | UnaryOperation::DoubleFactorial if x < 0 => {
+            UnaryOperation::Factorial | UnaryOperation::DoubleFactorial if x.is_sign_negative() => {
                 Err(EvaluationError::NegativeFactorial)
             }
-            UnaryOperation::Factorial | UnaryOperation::DoubleFactorial if x == 0 => Ok(1),
-            UnaryOperation::Factorial
-                if x < MAX_FACTORIAL && (1..=x).product::<i32>() <= ABS_NUM_SIZE_LIMIT =>
+            UnaryOperation::Factorial | UnaryOperation::DoubleFactorial if x.is_zero() => {
+                Ok(Decimal::from(1))
+            }
+            UnaryOperation::Factorial | UnaryOperation::DoubleFactorial
+                if x.to_f64().unwrap() % 1. >= f64::EPSILON =>
             {
-                Ok((1..=x).product())
+                Err(EvaluationError::FractionalFactorial)
+            }
+            UnaryOperation::Factorial
+                if x < *MAX_FACTORIAL
+                    && Decimal::from(
+                        (1..=(x.to_usize().ok_or(EvaluationError::Fractional)?)).product::<usize>(),
+                    ) <= *ABS_NUM_SIZE_LIMIT =>
+            {
+                Ok(Decimal::from(
+                    (1..=(x.to_usize().unwrap())).product::<usize>(),
+                ))
             }
             UnaryOperation::DoubleFactorial
-                if x < MAX_DOUBLE_FACTORIAL && double_factorial(x) <= ABS_NUM_SIZE_LIMIT =>
+                if x < *MAX_DOUBLE_FACTORIAL && double_factorial(x) <= *ABS_NUM_SIZE_LIMIT =>
             {
                 Ok(double_factorial(x))
             }
             UnaryOperation::Sqrt => {
-                if (x as f32).sqrt() % 1. < f32::EPSILON {
-                    Ok((x as f32).sqrt() as i32)
+                if x.to_f64().unwrap().sqrt() % 1. < f64::EPSILON {
+                    Ok(Decimal::from(x.to_f64().unwrap().sqrt().round()))
                 } else {
                     Err(EvaluationError::IrationalSqrt)
                 }
             }
             _ => Err(EvaluationError::Overflow),
+        } {
+            Ok(d)
+                if *Fraction::from(d.to_f64().unwrap())
+                    .denom()
+                    .unwrap_or_else(|| &u64::MAX)
+                    > MAX_DENOMENATOR
+                    || !d.is_normal() =>
+            {
+                Err(EvaluationError::Fractional)
+            }
+            x => x,
         }
     }
     fn get_as_string(&self, a: (&str, Expression)) -> String {
@@ -185,6 +238,7 @@ enum EvaluationError {
     ZeroDivision,
     IncompatibleWithYear,
     NegativeFactorial,
+    FractionalFactorial,
     IrationalSqrt,
     UnaryOperationOverflow,
 }
@@ -201,11 +255,11 @@ impl Hash for IncludedDigits {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ExpressionIndex {
     included_digits: IncludedDigits,
-    value: i32,
+    value: Decimal,
 }
 
 impl ExpressionIndex {
-    fn new(included_digits: IncludedDigits, value: i32) -> Self {
+    fn new(included_digits: IncludedDigits, value: Decimal) -> Self {
         Self {
             included_digits,
             value,
@@ -215,6 +269,10 @@ impl ExpressionIndex {
 #[derive(Debug, Clone)]
 enum Expression {
     Simple(u32),
+    SimpleDecimal {
+        val: Decimal,
+        phantom_zero: bool,
+    },
     UnaryComposite {
         a: ExpressionIndex,
         unary_op: UnaryOperation,
@@ -230,13 +288,18 @@ enum Expression {
 #[derive(Clone, Debug)]
 struct ExpressionData {
     included_digits: IncludedDigits,
-    value: i32,
+    value: Decimal,
     data: Expression,
     nesting_level: u8,
 }
 impl Expression {
-    fn from_single_num<'a>(n: u32) -> Result<ExpressionData, EvaluationError> {
+    fn int(x: String) -> Result<ExpressionData, EvaluationError> {
         let mut included_digits: Counter<u8> = Counter::new();
+
+        let n: u32 = x.parse().unwrap();
+        if Decimal::from(n as i32) > *ABS_NUM_SIZE_LIMIT {
+            return Err(EvaluationError::Overflow);
+        }
         if n == 0 {
             included_digits[&0] += 1
         } else {
@@ -249,17 +312,48 @@ impl Expression {
         }
 
         if !included_digits.is_subset(&YEAR_DIGITS_COUNTER) {
-            return Err(EvaluationError::IncompatibleWithYear);
+            Err(EvaluationError::IncompatibleWithYear)
+        } else {
+            Ok(ExpressionData {
+                included_digits: IncludedDigits(included_digits),
+                value: Decimal::from_str(&x).unwrap(),
+                data: Expression::Simple(n),
+                nesting_level: 0,
+            })
         }
-        if n > ABS_NUM_SIZE_LIMIT as u32 {
-            return Err(EvaluationError::Overflow);
+    }
+    fn decimal(mut x: String) -> Result<ExpressionData, EvaluationError> {
+        let mut included_digits: Counter<u8> = Counter::new();
+
+        for letter in x.chars() {
+            if letter == '.' {
+                continue;
+            }
+            included_digits[&(letter.to_digit(10).unwrap() as u8)] += 1;
         }
-        Ok(ExpressionData {
-            included_digits: IncludedDigits(included_digits),
-            value: n as i32,
-            data: Expression::Simple(n),
-            nesting_level: 0,
-        })
+        let phantom_zero = x.starts_with(".");
+        if phantom_zero {
+            x = "0".to_owned() + &x;
+        }
+        let value = Decimal::from_str(&x).unwrap();
+        if !included_digits.is_subset(&YEAR_DIGITS_COUNTER) {
+            println!("dec {:?}", included_digits);
+            Err(EvaluationError::IncompatibleWithYear)
+        } else if *Fraction::from(value.to_f64().unwrap()).denom().unwrap() > MAX_DENOMENATOR_FROM_ORIGNAL_DIGITS {
+            Err(EvaluationError::Fractional)
+        }
+        else {
+            
+            Ok(ExpressionData {
+                included_digits: IncludedDigits(included_digits),
+                value,
+                data: Expression::SimpleDecimal {
+                    val: value,
+                    phantom_zero,
+                },
+                nesting_level: 1,
+            })
+        }
     }
     fn unary_compose<'a>(
         a: &'a ExpressionData,
@@ -309,7 +403,7 @@ impl Expression {
 }
 
 #[derive(Debug)]
-struct ExpressionTable(HashMap<IncludedDigits, HashMap<i32, (Expression, u8)>>);
+struct ExpressionTable(HashMap<IncludedDigits, HashMap<Decimal, (Expression, u8)>>);
 impl ExpressionTable {
     fn get(&self, index: ExpressionIndex) -> ExpressionData {
         let x = self
@@ -325,7 +419,7 @@ impl ExpressionTable {
             nesting_level: x.1,
         }
     }
-    fn get_answers(&self) -> &HashMap<i32, (Expression, u8)> {
+    fn get_answers(&self) -> &HashMap<Decimal, (Expression, u8)> {
         self.0
             .get(&IncludedDigits(YEAR_DIGITS_COUNTER.to_owned()))
             .unwrap()
@@ -333,7 +427,7 @@ impl ExpressionTable {
     fn get_expressions_that_pair(
         &self,
         included: &IncludedDigits,
-    ) -> Vec<(&IncludedDigits, &HashMap<i32, (Expression, u8)>)> {
+    ) -> Vec<(&IncludedDigits, &HashMap<Decimal, (Expression, u8)>)> {
         self.0
             .iter()
             .filter_map(|(inc, exprs)| {
@@ -396,7 +490,13 @@ fn add_expressions() -> ExpressionTable {
     }
     // first insert basic digits
     for digit in YEAR_DIGITS.iter() {
-        if let Ok(expression_data) = Expression::from_single_num(digit.to_digit(10).unwrap()) {
+        if let Ok(expression_data) = Expression::int(digit.to_owned().to_string()) {
+            add_to_queue(&mut queue, &mut seen_expressions, &expression_data);
+            table.insert(expression_data);
+        }
+        if let Ok(expression_data) =
+            Expression::decimal(".".to_owned() + &digit.to_owned().to_string())
+        {
             add_to_queue(&mut queue, &mut seen_expressions, &expression_data);
             table.insert(expression_data);
         }
@@ -406,11 +506,19 @@ fn add_expressions() -> ExpressionTable {
         for n in YEAR_DIGITS
             .iter()
             .permutations(k)
-            .map(|x| String::from_iter(x).parse::<u32>().unwrap())
+            .map(|x| String::from_iter(x))
         {
-            if let Ok(expression_data) = Expression::from_single_num(n) {
+            if let Ok(expression_data) = Expression::int(n.clone()) {
                 add_to_queue(&mut queue, &mut seen_expressions, &expression_data);
                 table.insert(expression_data);
+            }
+            for x in 0..n.len() {
+                let mut curr = n.clone();
+                curr.insert(x, '.');
+                if let Ok(expression_data) = Expression::decimal(curr) {
+                    add_to_queue(&mut queue, &mut seen_expressions, &expression_data);
+                    table.insert(expression_data);
+                }
             }
         }
     }
@@ -457,6 +565,9 @@ fn add_expressions() -> ExpressionTable {
 fn collapse(expression: &Expression, table: &ExpressionTable) -> String {
     match expression {
         Expression::Simple(x) => x.to_string(),
+        Expression::SimpleDecimal { val, phantom_zero } => {
+            val.to_string()[(*phantom_zero as usize)..].to_string()
+        }
         Expression::UnaryComposite { a, unary_op, .. } => {
             let data = table.get(a.clone()).data;
             unary_op.get_as_string((&collapse(&data, table), data))
