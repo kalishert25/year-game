@@ -3,25 +3,25 @@ use counter::Counter;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use queues::*;
-use std::fs;
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
 };
+use std::fs;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-// Performace settings: higher numbers take longer but may increase yeild.
-const UNARY_OP_GROUP_LIMIT: u8 = 3; // sqrt(((x)!)!!) = 3
-const ABS_NUM_SIZE_LIMIT: i32 = 200; // maximum value that numbers in calculations can reach in intermediate expressions
-const MAX_BASE: i32 = 9; // maximum base that will be calculated
-const MAX_EXPONENT: i32 = 9; //maximum exponent that will be calculated
-const MAX_FACTORIAL: i32 = 7; //maximum x in x!  that will be calculated
-const MAX_DOUBLE_FACTORIAL: i32 = 10; //maximum x!! that will be calculated
-
-//IMPORTANT ====================================================
-const ANSWERS_MINIMUM: i32 = 0; //minimum final answer
-const ANSWERS_MAXIUM: i32 = 100; //maximum final answer
-                                 // =============================================================
+struct Parameters {
+    unary_op_group_limit: u8, // sqrt(((x)!)!!) = 3
+    abs_num_size_limit: i32, // maximum value that numbers in calculations can reach in intermediate expressions
+    max_base: i32,           // maximum base that will be calculated
+    max_exponent: i32,
+    max_factorial: i32,
+    max_double_factorial: i32,
+    answers_minimum: i32,
+    answers_maxium: i32,
+    excluded_unary_operations: HashSet<UnaryOperation>,
+    excluded_binary_operations: HashSet<BinaryOperation>,
+}
 
 lazy_static! {
     static ref YEAR_DIGITS: Vec<char> = get_user_input_digits();
@@ -31,15 +31,122 @@ lazy_static! {
         .collect();
 }
 fn main() {
+    let parameters: Parameters = ask_user_parameters();
     let mut expressions = vec![];
-    let x = add_expressions();
+    let x = add_expressions(&parameters);
     for (value, ex) in x.get_answers().into_iter() {
-        if *value >= ANSWERS_MINIMUM && *value <= ANSWERS_MAXIUM {
+        if *value >= parameters.answers_minimum && *value <= parameters.answers_maxium {
             expressions.push((*value, format!("{:?} = {}\n", value, collapse(&ex.0, &x),)));
         }
     }
     expressions.sort();
     fs::write("answer.txt", expressions.iter().map(|x| &x.1).join("")).unwrap();
+}
+fn ask_user_parameters() -> Parameters {
+    let unary_op_group_limit = input_num("Enter the max number of unary operations allowed to be stack on top of one another (default=3)", 3) as u8;
+    let abs_num_size_limit = input_num("Enter the max number that numbers are allowed to get to in intermediate calculations (default=10000)", 10000);
+    let max_base = input_num("Enter the max number allowed for a in a^b (default=9)", 9);
+    let max_exponent = input_num("Enter the max number allowed for b in a^b (default=7)", 7);
+    let max_factorial = input_num("Enter the max number allowed for a in a! (default=7)", 7);
+    let max_double_factorial =
+        input_num("Enter the max number allowed for a in a!! (default=10)", 10);
+    let answers_minimum = input_num(
+        "Important: Enter the minimum answer to be calculated (default=1)",
+        1,
+    );
+    let answers_maxium = input_num(
+        "Important: Enter the maximum answer to be calculated (default=100)",
+        100,
+    );
+    let (excluded_unary_operations, excluded_binary_operations) = get_exluded_operations();
+    Parameters {
+        unary_op_group_limit,
+        abs_num_size_limit,
+        max_base,
+        max_exponent,
+        max_factorial,
+        max_double_factorial,
+        answers_minimum,
+        answers_maxium,
+        excluded_unary_operations,
+        excluded_binary_operations,
+    }
+}
+
+fn input_num(s: &str, default: i32) -> i32 {
+    println!("{}", s);
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .expect("Failed to read line");
+
+    // Remove the trailing newline character
+    input.trim().to_string().parse().unwrap_or(default)
+}
+
+fn get_exluded_operations() -> (HashSet<UnaryOperation>, HashSet<BinaryOperation>) {
+    let mut excluded_bin_ops: HashSet<BinaryOperation> = HashSet::new();
+    let mut excluded_un_ops: HashSet<UnaryOperation> = HashSet::new();
+    let bin_ops: Vec<String> = BinaryOperation::iter()
+        .enumerate()
+        .map(|(i, op)| {
+            (i + 1).to_string()
+                + ". "
+                + &op.get_as_string(("a", Expression::Simple(0)), ("b", Expression::Simple(0)))
+        })
+        .collect();
+    let un_ops: Vec<String> = UnaryOperation::iter()
+        .enumerate()
+        .map(|(i, op)| (i + 1).to_string() + ". " + &op.get_as_string(("a", Expression::Simple(0))))
+        .collect();
+    println!(
+        "This program uses the following binary operations.\n{}",
+        bin_ops.join("\n")
+    );
+    println!("If you don't want to allow one or more of these operations, enter their numbers in a comma deliniated list (1-6). Otherwise press enter.");
+    let mut user_input = String::new();
+    std::io::stdin().read_line(&mut user_input).unwrap();
+    if user_input.trim() != "" {
+        user_input.split(',').for_each(|elem| {
+            excluded_bin_ops.insert(
+                *BinaryOperation::iter()
+                    .collect_vec()
+                    .get(
+                        elem.trim()
+                            .parse::<usize>()
+                            .expect("Error parsing input as a number.")
+                            - 1,
+                    )
+                    .expect("Number was out of range."),
+            );
+        });
+        println!("Excluding the following operations: {:?}", excluded_bin_ops);
+    }
+    println!(
+        "This program uses the following unary operations.\n{}",
+        un_ops.join("\n")
+    );
+    println!("If you don't want to allow one more more of these operations, enter their numbers in a comma deliniated list (1-4). Otherwise press enter.");
+    let mut user_input = String::new();
+    std::io::stdin().read_line(&mut user_input).unwrap();
+    if user_input.trim() != "" {
+        user_input.split(',').for_each(|elem| {
+            excluded_un_ops.insert(
+                *UnaryOperation::iter()
+                    .collect_vec()
+                    .get(
+                        elem.trim()
+                            .parse::<usize>()
+                            .expect("Error parsing input as a number.")
+                            - 1,
+                    )
+                    .expect("Number was out of range."),
+            );
+        });
+        println!("Excluding the following operations: {:?}", excluded_un_ops);
+    }
+
+    (excluded_un_ops, excluded_bin_ops)
 }
 
 fn get_user_input_digits() -> Vec<char> {
@@ -72,21 +179,21 @@ enum BinaryOperation {
     Radical,
 }
 impl BinaryOperation {
-    fn eval(&self, a: i32, b: i32) -> Result<i32, EvaluationError> {
+    fn eval(&self, params: &Parameters, a: i32, b: i32) -> Result<i32, EvaluationError> {
         // println!("Evaluating {} {:?} {}", a, self, b);
         match *self {
-            BinaryOperation::Add if (a + b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a + b),
-            BinaryOperation::Subtract if (a - b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a - b),
-            BinaryOperation::Multiply if (a * b).abs() <= ABS_NUM_SIZE_LIMIT => Ok(a * b),
+            BinaryOperation::Add if (a + b).abs() <= params.abs_num_size_limit => Ok(a + b),
+            BinaryOperation::Subtract if (a - b).abs() <= params.abs_num_size_limit => Ok(a - b),
+            BinaryOperation::Multiply if (a * b).abs() <= params.abs_num_size_limit => Ok(a * b),
             BinaryOperation::Divide if b == 0 => Err(EvaluationError::ZeroDivision),
             BinaryOperation::Divide if a % b != 0 => Err(EvaluationError::Fractional),
             BinaryOperation::Divide => Ok(a / b),
             BinaryOperation::Power if a == 0 && b == 0 => Ok(1),
             BinaryOperation::Power if b < 0 => Err(EvaluationError::Fractional),
             BinaryOperation::Power
-                if a.abs() < MAX_BASE
-                    && b.abs() < MAX_EXPONENT
-                    && a.pow(b as u32).abs() <= ABS_NUM_SIZE_LIMIT =>
+                if a.abs() < params.max_base
+                    && b.abs() < params.max_exponent
+                    && a.pow(b as u32).abs() <= params.abs_num_size_limit =>
             {
                 Ok(a.pow(b as u32))
             }
@@ -136,7 +243,7 @@ enum UnaryOperation {
     Sqrt,
 }
 impl UnaryOperation {
-    fn eval(&self, x: i32) -> Result<i32, EvaluationError> {
+    fn eval(&self, params: &Parameters, x: i32) -> Result<i32, EvaluationError> {
         match *self {
             UnaryOperation::Negate => Ok(-x),
             UnaryOperation::Factorial | UnaryOperation::DoubleFactorial if x < 0 => {
@@ -144,12 +251,14 @@ impl UnaryOperation {
             }
             UnaryOperation::Factorial | UnaryOperation::DoubleFactorial if x == 0 => Ok(1),
             UnaryOperation::Factorial
-                if x < MAX_FACTORIAL && (1..=x).product::<i32>() <= ABS_NUM_SIZE_LIMIT =>
+                if x < params.max_factorial
+                    && (1..=x).product::<i32>() <= params.abs_num_size_limit =>
             {
                 Ok((1..=x).product())
             }
             UnaryOperation::DoubleFactorial
-                if x < MAX_DOUBLE_FACTORIAL && double_factorial(x) <= ABS_NUM_SIZE_LIMIT =>
+                if x < params.max_double_factorial
+                    && double_factorial(x) <= params.abs_num_size_limit =>
             {
                 Ok(double_factorial(x))
             }
@@ -235,7 +344,7 @@ struct ExpressionData {
     nesting_level: u8,
 }
 impl Expression {
-    fn from_single_num<'a>(n: u32) -> Result<ExpressionData, EvaluationError> {
+    fn from_single_num<'a>(params: &Parameters, n: u32) -> Result<ExpressionData, EvaluationError> {
         let mut included_digits: Counter<u8> = Counter::new();
         if n == 0 {
             included_digits[&0] += 1
@@ -251,7 +360,7 @@ impl Expression {
         if !included_digits.is_subset(&YEAR_DIGITS_COUNTER) {
             return Err(EvaluationError::IncompatibleWithYear);
         }
-        if n > ABS_NUM_SIZE_LIMIT as u32 {
+        if n > params.abs_num_size_limit as u32 {
             return Err(EvaluationError::Overflow);
         }
         Ok(ExpressionData {
@@ -262,17 +371,18 @@ impl Expression {
         })
     }
     fn unary_compose<'a>(
+        params: &Parameters,
         a: &'a ExpressionData,
         unary_op: UnaryOperation,
     ) -> Result<ExpressionData, EvaluationError> {
         Ok(ExpressionData {
             included_digits: a.included_digits.clone(),
-            value: unary_op.eval(a.value)?,
+            value: unary_op.eval(params, a.value)?,
             data: Expression::UnaryComposite {
                 a: ExpressionIndex::new(a.included_digits.clone(), a.value),
                 unary_op,
                 iterative_ops: if let Expression::UnaryComposite { iterative_ops, .. } = &a.data {
-                    if iterative_ops + 1 < UNARY_OP_GROUP_LIMIT {
+                    if iterative_ops + 1 < params.unary_op_group_limit {
                         iterative_ops + 1
                     } else {
                         Err(EvaluationError::UnaryOperationOverflow)?
@@ -285,6 +395,7 @@ impl Expression {
         })
     }
     fn binary_compose<'a>(
+        params: &Parameters,
         a: &'a ExpressionData,
         binary_op: BinaryOperation,
         b: &'a ExpressionData,
@@ -297,7 +408,7 @@ impl Expression {
         }
         Ok(ExpressionData {
             included_digits: IncludedDigits(included_digits),
-            value: binary_op.eval(a.value, b.value)?,
+            value: binary_op.eval(params, a.value, b.value)?,
             data: Expression::BinaryComposite {
                 a: ExpressionIndex::new(a.included_digits.clone(), a.value),
                 binary_op,
@@ -373,7 +484,7 @@ impl ExpressionTable {
     }
 }
 
-fn add_expressions() -> ExpressionTable {
+fn add_expressions(params: &Parameters) -> ExpressionTable {
     let mut table = ExpressionTable::new();
     let mut queue: Queue<ExpressionIndex> = queue![];
     let mut seen_expressions: HashSet<ExpressionIndex> = HashSet::new();
@@ -396,7 +507,9 @@ fn add_expressions() -> ExpressionTable {
     }
     // first insert basic digits
     for digit in YEAR_DIGITS.iter() {
-        if let Ok(expression_data) = Expression::from_single_num(digit.to_digit(10).unwrap()) {
+        if let Ok(expression_data) =
+            Expression::from_single_num(params, digit.to_digit(10).unwrap())
+        {
             add_to_queue(&mut queue, &mut seen_expressions, &expression_data);
             table.insert(expression_data);
         }
@@ -408,7 +521,7 @@ fn add_expressions() -> ExpressionTable {
             .permutations(k)
             .map(|x| String::from_iter(x).parse::<u32>().unwrap())
         {
-            if let Ok(expression_data) = Expression::from_single_num(n) {
+            if let Ok(expression_data) = Expression::from_single_num(params, n) {
                 add_to_queue(&mut queue, &mut seen_expressions, &expression_data);
                 table.insert(expression_data);
             }
@@ -420,7 +533,10 @@ fn add_expressions() -> ExpressionTable {
         println!("The queue has {} items", queue.size());
         let curr = table.get(remove_from_queue(&mut queue));
         for unary_op in UnaryOperation::iter() {
-            if let Ok(expression_data) = Expression::unary_compose(&curr, unary_op) {
+            if params.excluded_unary_operations.contains(&unary_op) {
+                continue;
+            }
+            if let Ok(expression_data) = Expression::unary_compose(params, &curr, unary_op) {
                 add_to_queue(&mut queue, &mut seen_expressions, &expression_data);
                 table.insert(expression_data);
             }
@@ -431,7 +547,11 @@ fn add_expressions() -> ExpressionTable {
         for (included_digits, row) in possible_pairs {
             for (value, (data, nesting_level)) in row {
                 for binary_op in BinaryOperation::iter() {
+                    if params.excluded_binary_operations.contains(&binary_op) {
+                        continue;
+                    }
                     if let Ok(expression_data) = Expression::binary_compose(
+                        params,
                         &curr,
                         binary_op,
                         &ExpressionData {
